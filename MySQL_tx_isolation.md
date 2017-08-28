@@ -273,3 +273,538 @@ T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账�
 T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录，被阻塞
 T5 |  |  commit; | 事务2提交, 事务2提交前可以成功避免幻读
 T6 | commit; |  |  事务1 解除阻塞，并执行成功，提交
+
+
+#### 1.7 READ UNCOMMITTED VS READ COMMITTED
+
+
++ 1.7.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | 事务2被阻塞，直到事务1 结束才能读到数据
+T5 | rollback; |  | 事务1回滚，事务2的查询返回结果, balance = 100
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.7.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit;  | | 事务1提交
+T6 |  |select balance from t_account where id = '1';  | 事务2读取 zhao的账户，balance = 1100，不可重复读 
+
++ 1.7.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 添加时产生的幻读
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = null, 删除时产生的幻读
+
+
+#### 1.8 Read uncommitted VS repeatable Read
+
++ 1.8.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | balance = 100|事务2读取事务2开始之前已提交的记录
+T5 | rollback; |  | 事务1回滚
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.8.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取zhao的数据仍是100，可重复读
+
++ 1.8.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额, 查不到
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 查不到，添加时没有产生的幻读，但是不是最新的结果
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 删除时没有产生的幻读，但是不是最新的结果
+
+#### 1.9 Read uncommitted vs Serializable
+
++ 1.9.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | 事务2被阻塞，直到事务1 结束才能读到数据
+T5 | rollback; |  | 事务1回滚，事务2的查询返回结果, balance = 100
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.9.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元, 事务1 被阻塞，直到事务2提交
+T5 |  | commit; | 事务2提交，事务2提交前可重复读
+T6 | commit; | | 事务1 解除阻塞，并执行成功，提交
+
++ 1.9.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额, 查不到
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录，被阻塞
+T5 |  | commit; | 事务2提交，事务2提交前可以成功避免幻读
+T6 | commit; |  | 事务1 解除阻塞，并执行成功，提交
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ UNCOMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录，被阻塞
+T5 |  |  commit; | 事务2提交, 事务2提交前可以成功避免幻读
+T6 | commit; |  |  事务1 解除阻塞，并执行成功，提交
+
+#### 1.10 Read committed vs read uncommitted
+
++ 1.10.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | balance = 1100|事务2读取事务1没有提交的记录，即产生脏读
+T5 | rollback; |  | 事务1回滚
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据已经不存在，是事务1中的临时脏数据
+
++ 1.10.2 non-repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = '1'; | balance = 1100 事务2 读取zhao的数据已经不是100，在一个事务里边读取同一个记录，得到不同值，不可重复读
+
++ 1.10.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 添加时产生的幻读
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = null, 删除时产生的幻读
+
+
+#### 1.11 Read committed vs Repeatable read
++ 1.11.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | balance = 100|事务2读取事务2开始之前已提交的记录
+T5 | rollback; |  | 事务1回滚
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.11.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取zhao的数据仍是100，可重复读
+
++ 1.11.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额, 查不到
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 查不到，添加时没有产生的幻读，但是不是最新的结果
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 删除时没有产生的幻读，但是不是最新的结果
+
+#### 1.12 Read committed vs Serializable
++ 1.12.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | 事务2被阻塞，直到事务1 结束才能读到数据
+T5 | rollback; |  | 事务1回滚，事务2的查询返回结果, balance = 100
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.12.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元, 事务1 被阻塞，直到事务2提交
+T5 |  | commit; | 事务2提交，事务2提交前可重复读
+T6 | commit; | | 事务1 解除阻塞，并执行成功，提交
+
++ 1.12.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额, 查不到
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录，被阻塞
+T5 |  | commit; | 事务2提交，事务2提交前可以成功避免幻读
+T6 | commit; |  | 事务1 解除阻塞，并执行成功，提交
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level READ COMMITTED; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录，被阻塞
+T5 |  |  commit; | 事务2提交, 事务2提交前可以成功避免幻读
+T6 | commit; |  |  事务1 解除阻塞，并执行成功，提交
+
+
+
+#### 1.13 Repeatable read vs Read uncommitted
++ 1.13.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | balance = 1100|事务2读取事务1没有提交的记录，即产生脏读
+T5 | rollback; |  | 事务1回滚
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据已经不存在，是事务1中的临时脏数据
+
++ 1.13.2 non-repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = '1'; | balance = 1100 事务2 读取zhao的数据已经不是100，在一个事务里边读取同一个记录，得到不同值，不可重复读
+
++ 1.13.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 添加时产生的幻读
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = null, 删除时产生的幻读
+
+
+#### 1.14 Repeatable read VS READ COMMITTED
+
+
++ 1.14.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | 事务2被阻塞，直到事务1 结束才能读到数据
+T5 | rollback; |  | 事务1回滚，事务2的查询返回结果, balance = 100
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.14.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit;  | | 事务1提交
+T6 |  |select balance from t_account where id = '1';  | 事务2读取 zhao的账户，balance = 1100，不可重复读 
+
++ 1.14.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 添加时产生的幻读
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = null, 删除时产生的幻读
+
+#### 1.15 Repeatable read VS Serializable
++ 1.15.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | 事务2被阻塞，直到事务1 结束才能读到数据
+T5 | rollback; |  | 事务1回滚，事务2的查询返回结果, balance = 100
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.15.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元, 事务1 被阻塞，直到事务2提交
+T5 |  | commit; | 事务2提交，事务2提交前可重复读
+T6 | commit; | | 事务1 解除阻塞，并执行成功，提交
+
++ 1.15.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额, 查不到
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录，被阻塞
+T5 |  | commit; | 事务2提交，事务2提交前可以成功避免幻读
+T6 | commit; |  | 事务1 解除阻塞，并执行成功，提交
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level REPEATABLE READ; | set session transaction isolation level SERIALIZABLE; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录，被阻塞
+T5 |  |  commit; | 事务2提交, 事务2提交前可以成功避免幻读
+T6 | commit; |  |  事务1 解除阻塞，并执行成功，提交
+
+
+
+
+#### 1.16 Serializable VS Read uncommitted
++ 1.16.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level Serializable; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | balance = 1100|事务2读取事务1没有提交的记录，即产生脏读
+T5 | rollback; |  | 事务1回滚
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据已经不存在，是事务1中的临时脏数据
+
++ 1.16.2 non-repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level Serializable; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = '1'; | balance = 1100 事务2 读取zhao的数据已经不是100，不可重复读
+
++ 1.16.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level Serializable; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 添加时产生的幻读
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level Serializable; | set session transaction isolation level READ UNCOMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = null, 删除时产生的幻读
+
+
+
+#### 1.17 Serializable VS Read committed
+
++ 1.17.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | 事务2被阻塞，直到事务1 结束才能读到数据
+T5 | rollback; |  | 事务1回滚，事务2的查询返回结果, balance = 100
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.17.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit;  | | 事务1提交
+T6 |  |select balance from t_account where id = '1';  | 事务2读取 zhao的账户，balance = 1100，不可重复读 
+
++ 1.17.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 添加时产生的幻读
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level READ COMMITTED; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = null, 删除时产生的幻读
+
+#### 1.18 Serializable vs Repeatable read
++ 1.18.1 dirty read
+
+时间|session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1修改zhao的账户，为他存入1000元
+T4 | | select balance from t_account where id = '1'; | balance = 100|事务2读取事务2开始之前已提交的记录
+T5 | rollback; |  | 事务1回滚
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取的数据没有变化，不存在脏读问题
+
++ 1.18.2 repeatable read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = '1'; | 事务2读取 zhao的账户，balance = 100 
+T4 | update t_account set balance = 100 + 1000 where id = '1'; | | 事务1为zhao存入1000元
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = '1'; | balance = 100 事务2 读取zhao的数据仍是100，可重复读
+
++ 1.18.3 phantom read
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额, 查不到
+T4 | insert into t_account(id, name, balance) values('5', 'zhou', 500); | | 事务1添加一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 查不到，添加时没有产生的幻读，但是不是最新的结果
+
+时间| session 1 | session 2 | 备注
+---|---|---|---
+T1 | set autocommit = 0; | set autocommit = 0; | 关闭事务自动提交, 并提交当前事务 
+T2 | set session transaction isolation level SERIALIZABLE; | set session transaction isolation level REPEATABLE READ; | 设置隔离级别
+T3 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500
+T4 | delete from t_account where id = '5'; | | 事务1添删除一条id为5的记录
+T5 | commit; |  | 事务1提交
+T6 | | select balance from t_account where id = 5; | 事务2查询id为5的账户余额 balance = 500, 删除时没有产生的幻读，但是不是最新的结果
